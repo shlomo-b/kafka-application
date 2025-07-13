@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 # for CI github actions
 COPY /kafka/consumer/consumer.py /app
 
-# for local development
+# for local developmentt
 # COPY consumer.py /app
 
 EXPOSE 8001
