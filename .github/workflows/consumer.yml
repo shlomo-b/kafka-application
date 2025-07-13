@@ -38,7 +38,7 @@ jobs:
       - name: read file
         id: tag
         run: |
-          echo "contents=$(cat .kafka/consumer/image-tag.txt)" >> $GITHUB_OUTPUT
+          echo "contents=$(cat ./kafka/consumer/image-tag.txt)" >> $GITHUB_OUTPUT
 
       # print the contents
       - name: PrintFile contents
