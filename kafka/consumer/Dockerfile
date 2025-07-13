@@ -1,8 +1,13 @@
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt /app
+# for CI github actionsג
+COPY /kafka/consumer/requirements.txt /app
+
+# for local developmentd
+# COPY requirements.txt /app
+
 
 RUN pip install --no-cache-dir -r requirements.txt && \
     apt-get update -y && \
@@ -13,8 +18,11 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# for CI github actions
+COPY /kafka/consumer/consumer.py /app
 
-COPY consumer.py /app
+# for local development
+# COPY consumer.py /app
 
 EXPOSE 8001
 
