@@ -8,8 +8,6 @@ on:
   pull_request:
     paths:
       - 'kafka/consumer/**'
-permissions:
-  contents: write
 
 jobs:
   docker:
@@ -35,6 +33,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: test 
+        run: |
+          pwd
+          ls -l/kafka/consumer
 
       # read file and output the tag to contents
       - name: read file
