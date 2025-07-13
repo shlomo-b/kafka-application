@@ -5,7 +5,7 @@ WORKDIR /app
 # for CI github actionsג
 COPY /kafka/consumer/requirements.txt /app
 
-# for local developmentd
+# for local developmentdd
 # COPY requirements.txt /app
 
 

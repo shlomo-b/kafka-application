@@ -37,7 +37,7 @@ jobs:
       - name: test 
         run: |
           pwd
-          ls -l/kafka/consumer
+          ls -l/kafka/consumer/
 
       # read file and output the tag to contents
       - name: read file
