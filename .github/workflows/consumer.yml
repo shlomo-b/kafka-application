@@ -48,7 +48,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: . # the context is the root directory
-          file: .kafka/consumer/Dockerfile
+          file: ./kafka/consumer/Dockerfile
           push: false
           load: true  # ← Required for Trivy to scan local image
           tags: consumer:${{ steps.tag.outputs.contents }}
@@ -71,7 +71,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: .kafka/consumer/Dockerfile
+          file: ./kafka/consumer/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
