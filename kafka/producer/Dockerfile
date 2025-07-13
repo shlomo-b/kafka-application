@@ -2,7 +2,11 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-COPY requirements.txt /app
+# for CI github actions
+COPY /kafka/producer/requirements.txt /app
+
+# for local development
+# COPY requirements.txt /app
 
 RUN pip install --no-cache-dir -r requirements.txt && \
     apt-get update -y && \
@@ -13,8 +17,11 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# for CI github actions
+COPY /kafka/producer/producer.py /app
 
-COPY producer.py /app
+# for local development
+# COPY producer.py /app
 
 EXPOSE 8000
 

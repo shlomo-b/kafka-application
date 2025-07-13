@@ -1,15 +1,13 @@
-name: Docker Image CI Client
+name: Docker Image CI producer
 
 on:
   push:
     branches: [ "main" ]
     paths:
-      - 'client/**'
+      - 'kafka/producer/**'
   pull_request:
     paths:
-      - 'client/**'
-permissions:
-  contents: write
+      - 'kafka/producer/**'
 
 jobs:
   docker:
@@ -40,7 +38,7 @@ jobs:
       - name: read file
         id: tag
         run: |
-          echo "contents=$(cat ./client/image-tag.txt)" >> $GITHUB_OUTPUT
+          echo "contents=$(cat ./kafka/producer/image-tag.txt)" >> $GITHUB_OUTPUT
 
       # print the contents
       - name: PrintFile contents
@@ -50,15 +48,15 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: . # the context is the root directory
-          file: ./client/Dockerfile
+          file: ./kafka/producer/Dockerfile
           push: false
           load: true  # ← Required for Trivy to scan local image
-          tags: secretpass-frontend:${{ steps.tag.outputs.contents }}
+          tags: producer:${{ steps.tag.outputs.contents }}
 
       - name: Scan local image with Trivy
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: 'secretpass-frontend:${{ steps.tag.outputs.contents }}'  # ← Local image tag
+          image-ref: 'producer:${{ steps.tag.outputs.contents }}'  # ← Local image tag
           format: 'table' # format the output
           exit-code: 1  # ← Fail workflow on vulnerabilities
           ignore-unfixed: true # don't fail on vulnerabilities that are not fixed
@@ -66,27 +64,26 @@ jobs:
 
       # print the image with tag
       - name: Print image tag
-        run: echo "${{ secrets.DOCKERHUB_USERNAME }}/secretpass-frontend:${{ steps.tag.outputs.contents }}"
+        run: echo "${{ secrets.DOCKERHUB_USERNAME }}/producer:${{ steps.tag.outputs.contents }}"
 
       - name: Push image to Docker Hub
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./client/Dockerfile
+          file: ./kafka/producer/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/secretpass-frontend:${{ steps.tag.outputs.contents }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/secretpass-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/producer:${{ steps.tag.outputs.contents }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/producer:latest
 
-      - name: Create Git tag from file
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/shlomo-b/SecretPass.git
-          git tag ${{ steps.tag.outputs.contents }}
-          git push origin ${{ steps.tag.outputs.contents }}
-        # env:
-        #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Create Git tag from file
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     git config user.name "github-actions"
+      #     git config user.email "github-actions@github.com"
+      #     git tag ${{ steps.tag.outputs.contents }}
+      #     git push origin ${{ steps.tag.outputs.contents }}
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
