@@ -7,6 +7,12 @@ Includes a producer, a consumer, and a web UI for Kafka management.
 
 ---
 
+## Requirements
+- Docker & Docker Compose
+- (Optional) Python 3.9+ for local development
+
+---
+
 ## Features
 
 - **Producer**: FastAPI service to send messages to a Kafka topic via REST (`/send`).
@@ -89,50 +95,13 @@ docker-compose up --build
 ## API Usage
 
 ### Producer
-
-- **POST /send**
-  - Body: `{ "message": "Hello World" }`
-  - Publishes the message to Kafka topic (`chat-devops`).
-
-- **GET /health**
-  - Health check endpoint.
+- `POST /send`
+- `GET /health`
 
 ### Consumer
-
-- **GET /messages**
-  - Returns all received messages.
-
-- **GET /metrics**
-  - Prometheus metrics.
-
-- **GET /health**
-  - Health check endpoint.
-
----
-
-## Requirements
-
-- Docker & Docker Compose
-- (Optional) Python 3.9+ for local development
-
----
-
-## Manual Local Development
-
-You can run each service locally (outside Docker):
-
-```bash
-# Producer
-cd kafka/producer
-pip install -r requirements.txt
-python producer.py
-
-# Consumer
-cd kafka/consumer
-pip install -r requirements.txt
-python consumer.py
-```
-> Make sure Kafka is running and accessible at the address in `KAFKA_BOOTSTRAP_SERVERS`.
+- `GET /messages`
+- `GET /metrics`
+- `GET /health`
 
 ---
 
