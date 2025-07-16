@@ -66,6 +66,10 @@ jobs:
       - name: Print image tag
         run: echo "${{ secrets.DOCKERHUB_USERNAME }}/consumer:${{ steps.tag.outputs.contents }}"
 
+      - name: output tag image only
+        id: tag-only
+        run: echo "tag-image=$(echo '${{ steps.tag.outputs.contents }}' | cut -d'-' -f2)" >> $GITHUB_OUTPUT    
+
       - name: Push image to Docker Hub
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: docker/build-push-action@v6
@@ -75,15 +79,15 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/consumer:${{ steps.tag.outputs.contents }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/consumer:${{ steps.tag-only.outputs.tag-image }}
             ${{ secrets.DOCKERHUB_USERNAME }}/consumer:latest
 
-      # - name: Create Git tag from file
-      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      #   run: |
-      #     git config user.name "github-actions"
-      #     git config user.email "github-actions@github.com"
-      #     git tag ${{ steps.tag.outputs.contents }}
-      #     git push origin ${{ steps.tag.outputs.contents }}
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Git tag from file
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag ${{ steps.tag.outputs.contents }}
+          git push origin ${{ steps.tag.outputs.contents }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
