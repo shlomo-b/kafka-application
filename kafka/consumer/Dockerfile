@@ -3,10 +3,10 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # for CI github actionsג
-# COPY /kafka/consumer/requirements.txt /app
+COPY /kafka/consumer/requirements.txt /app
 
 # for local developmentd
-COPY requirements.txt /app
+# COPY requirements.txt /app
 
 
 RUN pip install --no-cache-dir -r requirements.txt && \
@@ -19,10 +19,10 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     rm -rf /var/lib/apt/lists/*
 
 # for CI github actions
-# COPY /kafka/consumer/consumer.py /app
+COPY /kafka/consumer/consumer.py /app
 
 # for local development
-COPY consumer.py /app
+# COPY consumer.py /app
 
 EXPOSE 8001
 
