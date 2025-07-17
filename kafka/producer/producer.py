@@ -14,6 +14,7 @@ app = FastAPI(title="Sender Service", description="Service to send chat messages
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = [os.getenv('KAFKA_BOOTSTRAP_SERVERS')]
 TOPIC_NAME = 'chat-devops'
+ORDERS_TOPIC_NAME = 'orders'
 # TOPIC_NAME = 'chat-devops
 
 # Initialize Kafka producer
@@ -30,6 +31,10 @@ except Exception as e:
 
 class ChatMessage(BaseModel):
     message: str
+
+class Order(BaseModel):
+    name: str
+    order: str
 
 @app.post("/send")
 async def send_message(chat_message: ChatMessage):
@@ -64,6 +69,41 @@ async def send_message(chat_message: ChatMessage):
     except Exception as e:
         logger.error(f"Error sending message to Kafka: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
+
+@app.post("/send-order")
+async def send_order(order: Order):
+    """
+    Accept orders and publish them to Kafka orders topic
+    """
+    if not producer:
+        raise HTTPException(status_code=500, detail="Kafka producer not available")
+    
+    try:
+        # Publish order to Kafka
+        future = producer.send(
+            ORDERS_TOPIC_NAME,
+            value={"name": order.name, "order": order.order},
+            key="order"    
+        )
+        
+        # Wait for the message to be sent
+        record_metadata = future.get(timeout=10)
+        
+        logger.info(f"Order sent successfully to topic {record_metadata.topic} "
+                   f"partition {record_metadata.partition} offset {record_metadata.offset}")
+        
+        return {
+            "status": "success",
+            "message": "Order sent to Kafka",
+            "topic": record_metadata.topic,
+            "partition": record_metadata.partition,
+            "offset": record_metadata.offset,
+            "name": order.name
+        }
+        
+    except Exception as e:
+        logger.error(f"Error sending order to Kafka: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send order: {str(e)}")
 
 @app.get("/health")
 async def health_check():
