@@ -34,6 +34,10 @@ orders = []
 messages_lock = threading.Lock()
 orders_lock = threading.Lock()
 
+# In-memory counters
+total_messages_received = 0
+total_orders_received = 0
+
 # Prometheus metrics
 messages_received = Counter('messages_received_total', 'Total number of messages received')
 orders_received = Counter('orders_received_total', 'Total number of orders received')
@@ -130,14 +134,13 @@ def store_message_in_redis(message_data: dict, offset: int, partition: int):
         message_id = message_data.get('id', f"msg_{int(time.time())}_{offset}")
         message_key = f"received_message:{message_id}"
         
+        from datetime import datetime
         message_metadata = {
-            'id': message_id,
             'message': message_data.get('message', ''),
             'topic': TOPIC_NAME,
             'partition': partition,
             'offset': offset,
-            'timestamp': time.time(),
-            'status': 'received'
+            'timestamp': datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
         }
         
         # Store in Redis with 24-hour expiration
@@ -168,15 +171,14 @@ def store_order_in_redis(order_data: dict, offset: int, partition: int):
         order_id = order_data.get('id', f"order_{int(time.time())}_{offset}")
         order_key = f"received_order:{order_id}"
         
+        from datetime import datetime
         order_metadata = {
-            'id': order_id,
             'name': order_data.get('name', ''),
             'order': order_data.get('order', ''),
             'topic': ORDERS_TOPIC_NAME,
             'partition': partition,
             'offset': offset,
-            'timestamp': time.time(),
-            'status': 'received'
+            'timestamp': datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
         }
         
         # Store in Redis with 24-hour expiration
@@ -214,17 +216,21 @@ def consume_messages():
                 message_data = message.value
                 message_text = message_data.get('message', 'Unknown message')
                 
+                from datetime import datetime
                 # Store message with timestamp
                 message_entry = {
                     'message': message_text,
-                    'timestamp': time.time(),
+                    'topic': TOPIC_NAME,
+                    'partition': message.partition,
                     'offset': message.offset,
-                    'partition': message.partition
+                    'timestamp': datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
                 }
                 
                 # Thread-safe message storage
                 with messages_lock:
                     messages.append(message_entry)
+                    global total_messages_received
+                    total_messages_received += 1
                 
                 # Store in Redis
                 store_message_in_redis(message_data, message.offset, message.partition)
@@ -263,18 +269,22 @@ def consume_orders():
                 name = order_data.get('name', 'Unknown name')
                 order_text = order_data.get('order', 'Unknown order')
                 
+                from datetime import datetime
                 # Store order with timestamp
                 order_entry = {
                     'name': name,
                     'order': order_text,
-                    'timestamp': time.time(),
+                    'topic': ORDERS_TOPIC_NAME,
+                    'partition': message.partition,
                     'offset': message.offset,
-                    'partition': message.partition
+                    'timestamp': datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
                 }
                 
                 # Thread-safe order storage
                 with orders_lock:
                     orders.append(order_entry)
+                    global total_orders_received
+                    total_orders_received += 1
                 
                 # Store in Redis
                 store_order_in_redis(order_data, message.offset, message.partition)
@@ -315,7 +325,8 @@ async def get_messages():
             return Response(
                 content=json_lib.dumps({
                     "messages": messages,
-                    "total_count": len(messages)
+                    "total_count": len(messages),
+                    "total_received": total_messages_received
                 }, indent=2),
                 media_type="application/json"
             )
@@ -340,7 +351,8 @@ async def get_messages():
             content=json_lib.dumps({
                 "messages": messages_from_redis,
                 "total_count": len(messages_from_redis),
-                "total_received": int(total_received)
+                "total_received": int(total_received),
+                "source": "redis"
             }, indent=2),
             media_type="application/json"
         )
@@ -354,7 +366,8 @@ async def get_messages():
             return Response(
                 content=json_lib.dumps({
                     "messages": messages,
-                    "total_count": len(messages)
+                    "total_count": len(messages),
+                    "total_received": total_messages_received
                 }, indent=2),
                 media_type="application/json"
             )
@@ -372,7 +385,8 @@ async def get_orders():
             return Response(
                 content=json_lib.dumps({
                     "orders": orders,
-                    "total_count": len(orders)
+                    "total_count": len(orders),
+                    "total_received": total_orders_received
                 }, indent=2),
                 media_type="application/json"
             )
@@ -397,7 +411,8 @@ async def get_orders():
             content=json_lib.dumps({
                 "orders": orders_from_redis,
                 "total_count": len(orders_from_redis),
-                "total_received": int(total_received)
+                "total_received": int(total_received),
+                "source": "redis"
             }, indent=2),
             media_type="application/json"
         )
@@ -411,7 +426,8 @@ async def get_orders():
             return Response(
                 content=json_lib.dumps({
                     "orders": orders,
-                    "total_count": len(orders)
+                    "total_count": len(orders),
+                    "total_received": total_orders_received
                 }, indent=2),
                 media_type="application/json"
             )
