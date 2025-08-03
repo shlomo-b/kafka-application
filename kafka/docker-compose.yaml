@@ -119,6 +119,8 @@ services:
       ALLOW_PLAINTEXT_LISTENER: "yes"
     volumes:
       - kafka-data:/bitnami/kafka
+      - "/etc/timezone:/etc/timezone:ro"
+      - "/etc/localtime:/etc/localtime:ro"
     networks:
       - kafka-network
     restart: unless-stopped
@@ -135,6 +137,9 @@ services:
     networks:
       - kafka-network
     restart: unless-stopped
+    volumes:
+      - "/etc/timezone:/etc/timezone:ro"
+      - "/etc/localtime:/etc/localtime:ro"
 
   producer:
     build:
@@ -149,6 +154,9 @@ services:
     networks:
       - kafka-network
     restart: unless-stopped
+    volumes:
+      - "/etc/timezone:/etc/timezone:ro"
+      - "/etc/localtime:/etc/localtime:ro"
 
   consumer:
     build:
@@ -167,6 +175,9 @@ services:
     networks:
       - kafka-network
     restart: unless-stopped
+    volumes:
+      - "/etc/timezone:/etc/timezone:ro"
+      - "/etc/localtime:/etc/localtime:ro"
 
   redis:
     image: redis:latest
@@ -174,6 +185,8 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
+      - "/etc/timezone:/etc/timezone:ro"
+      - "/etc/localtime:/etc/localtime:ro"
     networks:
       - kafka-network
     restart: unless-stopped  
