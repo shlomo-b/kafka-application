@@ -1,9 +1,9 @@
-# Kafka Application
+# Kafka + Redis Application
 
 **Official repository:** [https://github.com/shlomo-b/kafka-application](https://github.com/shlomo-b/kafka-application)
 
-A simple Python-based Kafka microservices demo with FastAPI, supporting both Zookeeper-based and KRaft (KRaft mode, no Zookeeper) Kafka clusters.  
-Includes a producer, a consumer, and a web UI for Kafka management.
+A robust Python-based Kafka + Redis microservices demo with FastAPI, featuring Redis caching and both Zookeeper-based and KRaft Kafka clusters.  
+Includes a producer, consumer with Redis integration, and a web UI for Kafka management.
 
 ---
 
@@ -15,8 +15,10 @@ Includes a producer, a consumer, and a web UI for Kafka management.
 
 ## Features
 
-- **Producer**: FastAPI service to send messages to a Kafka topic via REST (`/send`).
-- **Consumer**: FastAPI service that consumes messages from Kafka and exposes REST endpoints for message history and Prometheus metrics.
+- **Producer**: FastAPI service to send messages to Kafka topics via REST (`/send`, `/send-order`).
+- **Consumer**: FastAPI service that consumes messages from Kafka, stores them in Redis, and exposes REST endpoints for message history and Prometheus metrics.
+- **Redis Integration**: Caching and persistence layer for message storage with 24-hour TTL.
+
 - **Kafka UI**: Web interface for monitoring topics, consumers, and messages.
 - **CI/CD**: GitHub Actions for building, scanning, and pushing Docker images for both producer and consumer.
 
@@ -28,15 +30,18 @@ Includes a producer, a consumer, and a web UI for Kafka management.
 kafka-application/
 │
 ├── kafka/
-│   ├── docker-compose.yaml
+│   ├── docker-compose.yaml          # Kafka + Redis + Services
 │   ├── producer/
-│   │   ├── producer.py
-│   │   ├── requirements.txt
-│   │   └── Dockerfile
+│   │   ├── producer.py              # FastAPI producer with retry logic
+│   │   ├── requirements.txt         # Dependencies
+│   │   ├── Dockerfile               # Container configuration
+│   │   └── image-tag.txt            # CI/CD image tag
 │   └── consumer/
-│       ├── consumer.py
-│       ├── requirements.txt
-│       └── Dockerfile
+│       ├── consumer.py              # FastAPI consumer with Redis + retry logic
+│       ├── requirements.txt         # Dependencies (includes Redis)
+│       ├── Dockerfile               # Container configuration
+│       └── image-tag.txt            # CI/CD image tag
+│
 │
 └── .github/workflows/
     ├── producer.yml
@@ -45,17 +50,33 @@ kafka-application/
 
 ---
 
+## Architecture
+
+### Data Flow
+```
+Producer → Kafka → Consumer → Redis
+```
+
+### Services
+- **Producer**: Sends messages to Kafka topics (`chat-devops`, `orders`)
+- **Consumer**: Receives from Kafka, stores in Redis, serves via REST API
+- **Redis**: Caching and persistence layer with automatic expiration
+- **Kafka**: Message broker with KRaft mode (no Zookeeper)
+- **Kafka UI**: Web interface for monitoring
+
+---
+
 ## Kafka Cluster Options
 
-### 1. Zookeeper-based Kafka (default, uncommented)
-
-- Uses `confluentinc/cp-kafka` and `zookeeper`.
-- Suitable for legacy and most production setups.
-
-### 2. KRaft-based Kafka (no Zookeeper, commented out)
+### 1. KRaft-based Kafka (default, active)
 
 - Uses `bitnami/kafka` in KRaft mode (no Zookeeper).
-- Uncomment the relevant section in `docker-compose.yaml` to use.
+- More modern and efficient setup.
+
+### 2. Zookeeper-based Kafka (commented out)
+
+- Uses `confluentinc/cp-kafka` and `zookeeper`.
+- Available in commented section of `docker-compose.yaml`.
 
 **To switch between modes:**  
 - Comment/uncomment the relevant `services:` block in `kafka/docker-compose.yaml`.
@@ -71,39 +92,54 @@ git clone https://github.com/shlomo-b/kafka-application.git
 cd kafka-application/kafka
 ```
 
-### 2. Choose your Kafka mode
-
-- **Zookeeper-based (default):**  
-  No changes needed.
-- **KRaft-based:**  
-  Comment out the Zookeeper+Confluent section and uncomment the Bitnami KRaft section in `docker-compose.yaml`.
-
-### 3. Build and start all services
+### 2. Build and start all services
 
 ```bash
 docker-compose up --build
 ```
 
-### 4. Access the services
+### 3. Access the services
 
 - **Producer API:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Consumer API:** [http://localhost:8001/docs](http://localhost:8001/docs)
 - **Kafka UI:** [http://localhost:8080](http://localhost:8080)
+- **Redis:** localhost:6379
 
 ---
 
 ## API Usage
 
-### Producer
-- `POST /send`
-- `GET /health`
+### Producer Endpoints
+- `POST /send` - Send chat messages to Kafka
+- `POST /send-order` - Send orders to Kafka
+- `GET /health` - Health check
 
-### Consumer
-- `GET /messages`
-- `GET /metrics`
-- `GET /health`
+### Consumer Endpoints
+- `GET /messages` - Get messages from Redis
+- `GET /orders` - Get orders from Redis
+- `GET /messages/redis` - Get messages directly from Redis
+- `GET /orders/redis` - Get orders directly from Redis
+- `GET /metrics` - Prometheus metrics
+- `GET /health` - Health check with Redis status
 
 ---
+
+## Redis Integration
+
+### Features
+- **Message Storage**: All received messages stored in Redis with 24-hour TTL
+- **Order Storage**: All received orders stored in Redis with 24-hour TTL
+- **Automatic Cleanup**: Messages expire after 24 hours
+- **Recent History**: Last 100 messages/orders kept in Redis lists
+- **Counters**: Total sent/received counters maintained in Redis
+
+### Redis Data Structure
+```
+Messages: received_message:{message_id} (Hash)
+Orders: received_order:{order_id} (Hash)
+Recent Lists: received_messages, received_orders (Lists)
+Counters: total_messages_received, total_orders_received
+```
 
 ## CI/CD
 
@@ -114,10 +150,10 @@ docker-compose up --build
 
 ## Switching Kafka Modes
 
+- **KRaft-based (default):**  
+  Active, uses `bitnami/kafka` in KRaft mode.
 - **Zookeeper-based:**  
-  Default, uses `confluentinc/cp-kafka` and `zookeeper`.
-- **KRaft-based:**  
-  Uncomment the Bitnami section and comment out the Zookeeper+Confluent section in `docker-compose.yaml`.
+  Comment out KRaft section and uncomment Zookeeper+Confluent section in `docker-compose.yaml`.
 
 ---
 
@@ -127,15 +163,26 @@ docker-compose up --build
   Make sure the `KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS` matches your Kafka service name and port.
 - **Producer/Consumer can't connect:**  
   Check `KAFKA_BOOTSTRAP_SERVERS` in environment and Docker Compose.
+- **Redis connection issues:**  
+  Verify Redis service is running and accessible on port 6379.
 - **CI/CD fails to find `image-tag.txt`:**  
   Ensure the file exists and the path is correct in the workflow.
 
 ---
 
-## Contributing
+## Evolution
 
-Contributions, issues, and feature requests are welcome! Feel free to open an issue or submit a pull request.
+### Before Kafka (HTTP-based)
+- Direct HTTP communication between services
+- Synchronous communication
+- No message persistence
 
-## Contact
+### Before Redis (Kafka-only)
+- Kafka message broker
+- In-memory storage only
+- No data persistence
 
-For questions or support, open an issue on the [GitHub repository](https://github.com/shlomo-b/kafka-application).
+### Current (Kafka + Redis)
+- Asynchronous Kafka communication
+- Redis caching and persistence
+- Production-ready architecture
