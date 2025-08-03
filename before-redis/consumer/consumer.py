@@ -34,80 +34,65 @@ message_processing_time = Histogram('message_processing_seconds', 'Time spent pr
 order_processing_time = Histogram('order_processing_seconds', 'Time spent processing orders')
 errors_total = Counter('errors_total', 'Total number of errors')
 
-# Initialize Kafka consumers
-try:
-    consumer = KafkaConsumer(
-        TOPIC_NAME,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=GROUP_ID,
-        auto_offset_reset='earliest',
-        enable_auto_commit=True,
-        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
-    )
-    logger.info("Kafka consumer initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize Kafka consumer: {e}")
+def initialize_kafka_consumers():
+    """
+    Initialize Kafka consumers with retry logic
+    """
+    global consumer, orders_consumer
+    
+    # Initialize main consumer with retry
     consumer = None
-
-try:
-    orders_consumer = KafkaConsumer(
-        ORDERS_TOPIC_NAME,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=ORDERS_GROUP_ID,
-        auto_offset_reset='earliest',
-        enable_auto_commit=True,
-        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
-    )
-    logger.info("Kafka orders consumer initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize Kafka orders consumer: {e}")
+    max_retries = 10
+    retry_delay = 5  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting to connect to Kafka (attempt {attempt + 1}/{max_retries})...")
+            consumer = KafkaConsumer(
+                TOPIC_NAME,
+                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                group_id=GROUP_ID,
+                auto_offset_reset='earliest',
+                enable_auto_commit=True,
+                value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+            )
+            logger.info("Kafka consumer initialized successfully")
+            break
+        except Exception as e:
+            logger.error(f"Failed to initialize Kafka consumer (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                logger.error("Max retries reached. Kafka consumer initialization failed.")
+                consumer = None
+    
+    # Initialize orders consumer with retry
     orders_consumer = None
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting to connect to Kafka orders (attempt {attempt + 1}/{max_retries})...")
+            orders_consumer = KafkaConsumer(
+                ORDERS_TOPIC_NAME,
+                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                group_id=ORDERS_GROUP_ID,
+                auto_offset_reset='earliest',
+                enable_auto_commit=True,
+                value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+            )
+            logger.info("Kafka orders consumer initialized successfully")
+            break
+        except Exception as e:
+            logger.error(f"Failed to initialize Kafka orders consumer (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                logger.error("Max retries reached. Kafka orders consumer initialization failed.")
+                orders_consumer = None
 
-def consume_messages():
-    """
-    Background thread to consume messages from Kafka
-    """
-    if not consumer:
-        logger.error("Kafka consumer not available")
-        return
-    
-    logger.info("Starting to consume messages from Kafka...")
-    
-    try:
-        for message in consumer:
-            start_time = time.time()
-            
-            try:
-                # Extract message data
-                message_data = message.value
-                message_text = message_data.get('message', 'Unknown message')
-                
-                # Store message with timestamp
-                message_entry = {
-                    'message': message_text,
-                    'timestamp': time.time(),
-                    'offset': message.offset,
-                    'partition': message.partition
-                }
-                
-                # Thread-safe message storage
-                with messages_lock:
-                    messages.append(message_entry)
-                
-                # Update metrics
-                messages_received.inc()
-                message_processing_time.observe(time.time() - start_time)
-                
-                logger.info(f"Received message: {message_text} (offset: {message.offset})")
-                
-            except Exception as e:
-                logger.error(f"Error processing message: {e}")
-                errors_total.inc()
-                
-    except Exception as e:
-        logger.error(f"Error in consumer loop: {e}")
-        errors_total.inc()
-
+# Initialize consumers
+initialize_kafka_consumers()
 def consume_orders():
     """
     Background thread to consume orders from Kafka
