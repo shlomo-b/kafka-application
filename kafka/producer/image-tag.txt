@@ -1,1 +1,1 @@
-producer-v1.2.0
+producer-v1.3.0
