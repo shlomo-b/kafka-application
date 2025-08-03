@@ -4,6 +4,9 @@ from kafka import KafkaProducer
 import json
 import logging
 import os
+import uuid
+from fastapi.responses import Response
+from fastapi.responses import JSONResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,19 +18,37 @@ app = FastAPI(title="Sender Service", description="Service to send chat messages
 KAFKA_BOOTSTRAP_SERVERS = [os.getenv('KAFKA_BOOTSTRAP_SERVERS')]
 TOPIC_NAME = 'chat-devops'
 ORDERS_TOPIC_NAME = 'orders'
-# TOPIC_NAME = 'chat-devops
 
-# Initialize Kafka producer
-try:
-    producer = KafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        key_serializer=lambda k: k.encode('utf-8') if k else None
-    )
-    logger.info("Kafka producer initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize Kafka producer: {e}")
-    producer = None
+def initialize_kafka_producer():
+    """
+    Initialize Kafka producer with retry logic
+    """
+    global producer
+    
+    max_retries = 10
+    retry_delay = 5  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting to connect to Kafka producer (attempt {attempt + 1}/{max_retries})...")
+            producer = KafkaProducer(
+                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                key_serializer=lambda k: k.encode('utf-8') if k else None
+            )
+            logger.info("Kafka producer initialized successfully")
+            break
+        except Exception as e:
+            logger.error(f"Failed to initialize Kafka producer (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                logger.error("Max retries reached. Kafka producer initialization failed.")
+                producer = None
+
+# Initialize producer
+initialize_kafka_producer()
 
 class ChatMessage(BaseModel):
     message: str
@@ -45,10 +66,13 @@ async def send_message(chat_message: ChatMessage):
         raise HTTPException(status_code=500, detail="Kafka producer not available")
     
     try:
+        # Generate unique message ID
+        message_id = str(uuid.uuid4())
+        
         # Publish message to Kafka
         future = producer.send(
             TOPIC_NAME,
-            value={"message": chat_message.message},
+            value={"message": chat_message.message, "id": message_id},
             key="chat-message"    
         )
         
@@ -58,13 +82,18 @@ async def send_message(chat_message: ChatMessage):
         logger.info(f"Message sent successfully to topic {record_metadata.topic} "
                    f"partition {record_metadata.partition} offset {record_metadata.offset}")
         
-        return {
-            "status": "success",
-            "message": "Message sent to Kafka",
-            "topic": record_metadata.topic,
-            "partition": record_metadata.partition,
-            "offset": record_metadata.offset
-        }
+        import json as json_lib
+        return Response(
+            content=json_lib.dumps({
+                "status": "success",
+                "message": "Message sent to Kafka",
+                "message_id": message_id,
+                "topic": record_metadata.topic,
+                "partition": record_metadata.partition,
+                "offset": record_metadata.offset
+            }, indent=2),
+            media_type="application/json"
+        )
         
     except Exception as e:
         logger.error(f"Error sending message to Kafka: {e}")
@@ -79,10 +108,13 @@ async def send_order(order: Order):
         raise HTTPException(status_code=500, detail="Kafka producer not available")
     
     try:
+        # Generate unique order ID
+        order_id = str(uuid.uuid4())
+        
         # Publish order to Kafka
         future = producer.send(
             ORDERS_TOPIC_NAME,
-            value={"name": order.name, "order": order.order},
+            value={"name": order.name, "order": order.order, "id": order_id},
             key="order"    
         )
         
@@ -92,14 +124,19 @@ async def send_order(order: Order):
         logger.info(f"Order sent successfully to topic {record_metadata.topic} "
                    f"partition {record_metadata.partition} offset {record_metadata.offset}")
         
-        return {
-            "status": "success",
-            "message": "Order sent to Kafka",
-            "topic": record_metadata.topic,
-            "partition": record_metadata.partition,
-            "offset": record_metadata.offset,
-            "name": order.name
-        }
+        import json as json_lib
+        return Response(
+            content=json_lib.dumps({
+                "status": "success",
+                "message": "Order sent to Kafka",
+                "order_id": order_id,
+                "topic": record_metadata.topic,
+                "partition": record_metadata.partition,
+                "offset": record_metadata.offset,
+                "name": order.name
+            }, indent=2),
+            media_type="application/json"
+        )
         
     except Exception as e:
         logger.error(f"Error sending order to Kafka: {e}")
@@ -110,7 +147,15 @@ async def health_check():
     """
     Health check endpoint
     """
-    return {"status": "healthy", "service": "sender"}
+    import json as json_lib
+    return Response(
+        content=json_lib.dumps({
+            "status": "healthy", 
+            "service": "sender",
+            "kafka_connected": producer is not None
+        }, indent=2),
+        media_type="application/json"
+    )
 
 if __name__ == "__main__":
     import uvicorn
