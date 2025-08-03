@@ -18,17 +18,36 @@ ORDERS_TOPIC_NAME = 'orders'
 # TOPIC_NAME = 'chat-devops
 
 # Initialize Kafka producer
-try:
-    producer = KafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        key_serializer=lambda k: k.encode('utf-8') if k else None
-    )
-    logger.info("Kafka producer initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize Kafka producer: {e}")
-    producer = None
+def initialize_kafka_producer():
+    """
+    Initialize Kafka producer with retry logic
+    """
+    global producer
+    
+    max_retries = 10
+    retry_delay = 5  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting to connect to Kafka producer (attempt {attempt + 1}/{max_retries})...")
+            producer = KafkaProducer(
+                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                key_serializer=lambda k: k.encode('utf-8') if k else None
+            )
+            logger.info("Kafka producer initialized successfully")
+            break
+        except Exception as e:
+            logger.error(f"Failed to initialize Kafka producer (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                logger.error("Max retries reached. Kafka producer initialization failed.")
+                producer = None
 
+# Initialize producer
+initialize_kafka_producer()
 class ChatMessage(BaseModel):
     message: str
 
