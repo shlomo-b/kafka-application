@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import uuid
+import threading
+import time
 from fastapi.responses import Response
 from fastapi.responses import JSONResponse
 
@@ -19,36 +21,78 @@ KAFKA_BOOTSTRAP_SERVERS = [os.getenv('KAFKA_BOOTSTRAP_SERVERS')]
 TOPIC_NAME = 'chat-devops'
 ORDERS_TOPIC_NAME = 'orders'
 
-def initialize_kafka_producer():
-    """
-    Initialize Kafka producer with retry logic
-    """
-    global producer
-    
-    max_retries = 10
-    retry_delay = 5  # seconds
-    
-    for attempt in range(max_retries):
-        try:
-            logger.info(f"Attempting to connect to Kafka producer (attempt {attempt + 1}/{max_retries})...")
-            producer = KafkaProducer(
-                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                key_serializer=lambda k: k.encode('utf-8') if k else None
-            )
-            logger.info("Kafka producer initialized successfully")
-            break
-        except Exception as e:
-            logger.error(f"Failed to initialize Kafka producer (attempt {attempt + 1}): {e}")
-            if attempt < max_retries - 1:
-                logger.info(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-            else:
-                logger.error("Max retries reached. Kafka producer initialization failed.")
-                producer = None
+# Global variables
+producer = None
+is_connected = False
+message_buffer = []
+buffer_lock = threading.Lock()
 
-# Initialize producer
-initialize_kafka_producer()
+def try_connect_kafka():
+    """Try to connect to Kafka - simple and direct"""
+    global producer, is_connected
+    
+    try:
+        logger.info("Trying to connect to Kafka...")
+        producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            key_serializer=lambda k: k.encode('utf-8') if k else None
+        )
+        # Test connection
+        producer.metrics()
+        is_connected = True
+        logger.info("✅ Connected to Kafka!")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to connect: {e}")
+        is_connected = False
+        return False
+
+def connection_monitor():
+    """Simple background thread that always tries to connect"""
+    global producer, is_connected
+    
+    while True:
+        if not is_connected:
+            try_connect_kafka()
+            if is_connected:
+                # Send buffered messages
+                send_buffered_messages()
+        time.sleep(5)  # Try every 5 seconds
+
+def send_buffered_messages():
+    """Send any buffered messages"""
+    global message_buffer
+    
+    with buffer_lock:
+        if not message_buffer:
+            return
+        
+        logger.info(f"Sending {len(message_buffer)} buffered messages...")
+        messages_to_send = message_buffer.copy()
+        message_buffer.clear()
+    
+    for msg in messages_to_send:
+        try:
+            send_message_internal(msg['topic'], msg['value'], msg['key'])
+            logger.info(f"Sent buffered message to {msg['topic']}")
+        except Exception as e:
+            logger.error(f"Failed to send buffered message: {e}")
+            # Put back in buffer
+            with buffer_lock:
+                message_buffer.append(msg)
+
+def send_message_internal(topic, value, key):
+    """Send message to Kafka"""
+    if not producer or not is_connected:
+        raise Exception("Not connected to Kafka")
+    
+    future = producer.send(topic, value=value, key=key)
+    return future.get(timeout=10)
+
+# Start connection monitor
+connection_thread = threading.Thread(target=connection_monitor, daemon=True)
+connection_thread.start()
 
 class ChatMessage(BaseModel):
     message: str
@@ -59,100 +103,106 @@ class Order(BaseModel):
 
 @app.post("/send")
 async def send_message(chat_message: ChatMessage):
-    """
-    Accept chat messages and publish them to Kafka topic
-    """
-    if not producer:
-        raise HTTPException(status_code=500, detail="Kafka producer not available")
+    """Send chat message"""
+    message_id = str(uuid.uuid4())
     
     try:
-        # Generate unique message ID
-        message_id = str(uuid.uuid4())
-        
-        # Publish message to Kafka
-        future = producer.send(
-            TOPIC_NAME,
-            value={"message": chat_message.message, "id": message_id},
-            key="chat-message"    
-        )
-        
-        # Wait for the message to be sent
-        record_metadata = future.get(timeout=10)
-        
-        logger.info(f"Message sent successfully to topic {record_metadata.topic} "
-                   f"partition {record_metadata.partition} offset {record_metadata.offset}")
-        
-        import json as json_lib
-        return Response(
-            content=json_lib.dumps({
-                "status": "success",
-                "message": "Message sent to Kafka",
-                "message_id": message_id,
-                "topic": record_metadata.topic,
-                "partition": record_metadata.partition,
-                "offset": record_metadata.offset
-            }, indent=2),
-            media_type="application/json"
-        )
-        
+        if is_connected:
+            record_metadata = send_message_internal(
+                TOPIC_NAME,
+                {"message": chat_message.message, "id": message_id},
+                "chat-message"
+            )
+            
+            return Response(
+                content=json.dumps({
+                    "status": "success",
+                    "message": "Message sent to Kafka",
+                    "message_id": message_id,
+                    "topic": record_metadata.topic,
+                    "partition": record_metadata.partition,
+                    "offset": record_metadata.offset
+                }, indent=2),
+                media_type="application/json"
+            )
+        else:
+            # Buffer message
+            with buffer_lock:
+                message_buffer.append({
+                    'topic': TOPIC_NAME,
+                    'value': {"message": chat_message.message, "id": message_id},
+                    'key': "chat-message"
+                })
+            
+            return Response(
+                content=json.dumps({
+                    "status": "buffered",
+                    "message": "Message buffered - will send when connected",
+                    "message_id": message_id,
+                    "buffered_count": len(message_buffer)
+                }, indent=2),
+                media_type="application/json"
+            )
+            
     except Exception as e:
-        logger.error(f"Error sending message to Kafka: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
+        logger.error(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/send-order")
 async def send_order(order: Order):
-    """
-    Accept orders and publish them to Kafka orders topic
-    """
-    if not producer:
-        raise HTTPException(status_code=500, detail="Kafka producer not available")
+    """Send order"""
+    order_id = str(uuid.uuid4())
     
     try:
-        # Generate unique order ID
-        order_id = str(uuid.uuid4())
-        
-        # Publish order to Kafka
-        future = producer.send(
-            ORDERS_TOPIC_NAME,
-            value={"name": order.name, "order": order.order, "id": order_id},
-            key="order"    
-        )
-        
-        # Wait for the message to be sent
-        record_metadata = future.get(timeout=10)
-        
-        logger.info(f"Order sent successfully to topic {record_metadata.topic} "
-                   f"partition {record_metadata.partition} offset {record_metadata.offset}")
-        
-        import json as json_lib
-        return Response(
-            content=json_lib.dumps({
-                "status": "success",
-                "message": "Order sent to Kafka",
-                "order_id": order_id,
-                "topic": record_metadata.topic,
-                "partition": record_metadata.partition,
-                "offset": record_metadata.offset,
-                "name": order.name
-            }, indent=2),
-            media_type="application/json"
-        )
-        
+        if is_connected:
+            record_metadata = send_message_internal(
+                ORDERS_TOPIC_NAME,
+                {"name": order.name, "order": order.order, "id": order_id},
+                "order"
+            )
+            
+            return Response(
+                content=json.dumps({
+                    "status": "success",
+                    "message": "Order sent to Kafka",
+                    "order_id": order_id,
+                    "topic": record_metadata.topic,
+                    "partition": record_metadata.partition,
+                    "offset": record_metadata.offset
+                }, indent=2),
+                media_type="application/json"
+            )
+        else:
+            # Buffer order
+            with buffer_lock:
+                message_buffer.append({
+                    'topic': ORDERS_TOPIC_NAME,
+                    'value': {"name": order.name, "order": order.order, "id": order_id},
+                    'key': "order"
+                })
+            
+            return Response(
+                content=json.dumps({
+                    "status": "buffered",
+                    "message": "Order buffered - will send when connected",
+                    "order_id": order_id,
+                    "buffered_count": len(message_buffer)
+                }, indent=2),
+                media_type="application/json"
+            )
+            
     except Exception as e:
-        logger.error(f"Error sending order to Kafka: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to send order: {str(e)}")
+        logger.error(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint
-    """
-    import json as json_lib
+    """Health check"""
     return Response(
-        content=json_lib.dumps({
-            "status": "healthy", 
-            "service": "sender",
-            "kafka_connected": producer is not None
+        content=json.dumps({
+            "status": "healthy",
+            "kafka_connected": is_connected,
+            "buffered_messages": len(message_buffer)
         }, indent=2),
         media_type="application/json"
     )

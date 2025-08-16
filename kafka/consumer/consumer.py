@@ -102,8 +102,61 @@ def initialize_kafka_consumers():
                 logger.error("Max retries reached. Kafka orders consumer initialization failed.")
                 orders_consumer = None
 
+def try_reconnect_kafka():
+    """Try to reconnect to Kafka - simple and direct"""
+    global consumer, orders_consumer
+    
+    # Try to reconnect main consumer
+    if not consumer:
+        try:
+            logger.info("Trying to reconnect to Kafka...")
+            consumer = KafkaConsumer(
+                TOPIC_NAME,
+                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                group_id=GROUP_ID,
+                auto_offset_reset='earliest',
+                enable_auto_commit=True,
+                value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+            )
+            logger.info("✅ Reconnected to Kafka!")
+            # Start consumer thread
+            consumer_thread = threading.Thread(target=consume_messages, daemon=True)
+            consumer_thread.start()
+        except Exception as e:
+            logger.error(f"Failed to reconnect to Kafka: {e}")
+    
+    # Try to reconnect orders consumer
+    if not orders_consumer:
+        try:
+            logger.info("Trying to reconnect to Kafka for orders...")
+            orders_consumer = KafkaConsumer(
+                ORDERS_TOPIC_NAME,
+                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                group_id=ORDERS_GROUP_ID,
+                auto_offset_reset='earliest',
+                enable_auto_commit=True,
+                value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+            )
+            logger.info("✅ Reconnected to Kafka for orders!")
+            # Start orders consumer thread
+            orders_thread = threading.Thread(target=consume_orders, daemon=True)
+            orders_thread.start()
+        except Exception as e:
+            logger.error(f"Failed to reconnect to Kafka for orders: {e}")
+
+def connection_monitor():
+    """Background thread that always tries to reconnect"""
+    while True:
+        if not consumer or not orders_consumer:
+            try_reconnect_kafka()
+        time.sleep(5)  # Try every 5 seconds
+
 # Initialize consumers
 initialize_kafka_consumers()
+
+# Start connection monitor
+connection_thread = threading.Thread(target=connection_monitor, daemon=True)
+connection_thread.start()
 
 # Initialize Redis client
 try:
