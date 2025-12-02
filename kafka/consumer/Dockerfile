@@ -24,6 +24,16 @@ COPY /kafka/consumer/consumer.py /app
 # for local development
 # COPY consumer.py /app
 
+# ------------ NEW (security best practice) -------------
+# Create a non-root user
+RUN adduser --disabled-password --gecos "" appuser --uid 1000
+
+# Make sure the user owns the files
+RUN chown -R appuser:appuser /app
+
+# Switch to the new user
+USER appuser
+
 EXPOSE 8001
 
 CMD ["python", "consumer.py"] 
