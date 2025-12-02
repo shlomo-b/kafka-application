@@ -52,6 +52,8 @@ jobs:
           push: false
           load: true  # ← Required for Trivy to scan local image
           tags: producer:${{ steps.tag.outputs.contents }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Scan local image with Trivy
         uses: aquasecurity/trivy-action@0.28.0
@@ -81,6 +83,8 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/producer:${{ steps.tag-only.outputs.tag-image }}
             ${{ secrets.DOCKERHUB_USERNAME }}/producer:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Create Git tag from file
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
