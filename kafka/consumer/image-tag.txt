@@ -1,1 +1,1 @@
-consumer-v1.3.2
+consumer-v2.0.0
